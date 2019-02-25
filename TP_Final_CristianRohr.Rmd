@@ -1,0 +1,1885 @@
+---
+title: \vspace{3.5in}"Trabajo Teórico/Práctico Integrador - Introducción a la Ciencia Datos"
+author: \vspace{2.0in}"Cristian Rohr"
+output:
+  pdf_document: default
+---
+
+\newpage
+\tableofcontents
+\newpage
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r global_options, include=FALSE}
+knitr::opts_chunk$set(fig.pos = 'h')
+```
+
+```{r lib, message = FALSE, warning=FALSE, include=FALSE}
+# Cargo librerías necesarias para el análisis
+library(ggplot2)
+library(reshape2)
+library(ISLR)
+library(caret)
+library(reshape2)
+library(corrplot)
+library(Hmisc)
+library(car)
+library(MVN)
+library(dplyr)
+library(class)
+library(kknn)
+library(VIM)
+library(heplots)
+library(MASS)
+library(GGally)
+library(kableExtra)
+library(ggthemr)
+library(knitr)
+ggthemr('flat')
+```
+
+# Introducción
+Este trabajo consta de tres apartados: Análisis de datos, Regresión y Clasificación.
+
+Se analizaran dos sets de datos, uno para el apartado de clasificación y otro para el apartado de regresión. Ambos datasets tendrán un análisis exploratorio previo.
+
+El dataset a utilizar para el apartado de clasificación es wisconsin y para el apartado de regresión ANACALT.
+
+## Objetivo
+El objetivo del trabajo es aplicar las técnicas y algoritmos aprendidos durante el curso para analizar los sets de datos y comparar la performance de diferentes algoritmos sobre ellos.
+
+\newpage
+# Apartado Análisis de Datos
+
+El objetivo del análisis exploratorio de datos es resumir y visualizar los datos para poder determinar cuales variables son las más importantes para predecir la variable respuesta. Además de identificar relaciones o distribuciones que nos ayuden a seleccionar un modelo, o optimizar sus parámetros.
+
+Los datos se encuentran almacenados en ficheros con formato keel. Se leen a un dataframe de R y se renombran las columnas.
+
+## Set de datos regresión (ANACALT)
+
+### Inspección del dataset y generación de hipótesis
+
+```{r eda_regresion, echo=T, results='hide'}
+# Lectura dataset de regresión: ANACALT
+datasetR <- read.csv("DATOS/Datasets Regresion/ANACALT/ANACALT.dat", 
+                     comment.char = "@")
+# Asignación automática de nombres a las variables
+n <- length(names(datasetR)) - 1
+names(datasetR)[1:n] <- paste("X", 1:n, sep = "") # Variables predictoras
+names(datasetR)[n+1] <- "Y" # Variable respuesta
+
+class(datasetR)  # Donde se almacenan los datos
+dim(datasetR)    # Dimensiones del dataset
+str(datasetR)    # Estructura del dataset, tipos de datos atómicos
+# Inspección de las primeras 10 filas
+head(datasetR)
+# Inspección de las últimas 10 filas
+tail(datasetR)
+```
+
+### Estadística descriptiva
+
+Utilizo las funciones `summary` y `describe` para obtener estadísticas descriptivas del dataset.
+
+```{r stats_reg}
+# Estadísticas descriptivas básicas
+summary(datasetR)
+```
+
+**Nota: Resultados del comando _describe_ no son mostrados debido a la longitud de los mismos**.
+```{r missing_reg, message=FALSE, results = 'hide'}
+# No muestro los resultados debido a la longitud de los mismos
+describe(datasetR)
+```
+
+- El set de datos consta de 4051 observaciones de 8 variables. Al inspeccionar los datos cargados todas las variables toman valores numéricos.
+- 5 variables (X2, X3, X4, X5 y X7) toman valores dos valores posible 0 o 1, y deben ser convertidas a categóricas (factor en R). 
+- X1 y X6 son contínuas. La variable independiente Y toma valores continuos.
+
+Los nombres originales de las variables son los siguientes:
+
+- Actions_taken: [0.0, 11.0]
+- Liberal: [0.0, 1.0]
+- Unconstitutional: [0.0, 1.0]
+- Precedent_alteration: [0.0, 1.0]
+- Unanimous: [0.0, 1.0]
+- Year_of_decision: [1953.0, 1988.0]
+- Lower_court_disagreement: [0.0, 1.0]
+- Log_exposure: [0.0, 2.3]
+
+**El objetivo es predecir las decisiones de la corte. Los datos son de los años 1953 a 1988**.
+
+\vskip 0.2in
+**Algunas hipótesis a priori sobre los datos**
+
+- Para la variable X3 (Unconstitutional) si asumimos 0 como negativo y 1 como positivo, es de esperar una baja cantidad de valores 1 para la variable, ya que serían decisiones inconstitucionales.
+- Para la variable X4 (Precedent_alteration) si asumimos 0 como negativo y 1 como positivo, es de esperar una baja cantidad de valores 1 para la variable, ya que las decisiones de la corte generalmente tienen en cuenta la jurisprudencia previa, y no se suelen alterar las decisiones.
+- Para la variable X7 (Lower_court_disagreement) si asumimos 0 como negativo y 1 como positivo, es de esperar una baja cantidad de valores 1 para la variable, ya que generalmente hay coincidencia entre las cámaras.
+- Con respecto a la variable X6 (Year_of_decision) esperaríamos una mayor cantidad de decisiones a medida que incrementan los años, asumiendo que un incremento poblacional acarrea mas juicios.
+- ¿Las decisiones que suponen una alteración de los precedentes son inconstitucionales?. Es decir ¿si X4 es 1, entonces X3 es 1?.
+
+\vskip 0.2in
+**Valores faltantes y duplicados**
+
+```{r duplicados_reg}
+# Calculo la cantidad de duplicados
+nrow(datasetR[duplicated(datasetR), ])
+```
+
+- Los resultados de summary y describe indican que no existen valores faltantes. En caso de haber existido, se podría haber realizado un análisis más profundo con el paquete _VIM_.
+- Existe una gran cantidad de valores duplicados (3442), por este motivo asumo que se trata de observaciones independientes con valores iguales.
+
+\newpage
+
+### Visualización del dataset
+
+```{r graficos_r_uni, message = FALSE, warning = FALSE}
+# Para facilitar el uso de ggplot2, genero un nuevo dataframe en 
+#formato `long` en lugar de `wide`.
+datasetR_long <- melt(data = datasetR)
+
+# Histograma
+plothistR <- ggplot(datasetR_long, aes(x = value)) + 
+   geom_histogram() +
+   facet_wrap(~variable, scales = "free") +
+   xlab("Valor") + ylab("Conteo") +
+   theme_light()
+
+# barplot variable year
+plotbaryear <- ggplot(data = datasetR, aes(X6)) + 
+  geom_bar() + ylab("Conteo") + theme_light()
+
+# qq-plots
+plotqqR <- ggplot(datasetR_long, aes(sample = value)) +
+  stat_qq() +
+  stat_qq_line() +
+  xlab("Teórico") +
+  ylab("Muestra") +
+  facet_wrap(~variable, scale = "free") +
+  theme_light()
+
+# boxplots
+plotboxR <- ggplot(data = datasetR_long, aes(x = variable, y = value)) + 
+  geom_boxplot() + xlab("Variable") +
+  ylab("Valor") +
+  theme_light() + facet_wrap(~variable, scales = "free")
+
+# ggpairs plot
+plotpairsR <- ggpairs(data = datasetR)
+```
+
+#### Gráficos Univariados
+
+1. Histogramas: chequeo de la distribución de los datos. Ver Figura \ref{fig:figshistR}.
+
+```{r histograma_r, warning = FALSE, message = FALSE, echo=FALSE, fig.width=10, fig.height=7, fig.cap="\\label{fig:figshistR}Histogramas para cada variable del dataset de regresión."}
+plothistR
+```
+
+**Esta primer visualización nos permite chequear algunas de las hipótesis a priori sobre el dataset**
+
+  * Para el caso de las variables X3 (Unconstitutional) y X4 (Precedent_alteration) se cumple la hipótesis.
+  * Para la variable X7 (Lower_court_disagreement) también se cumple, pero no en la proporción que imaginaba.
+  * Con respecto a la variable X6 (Year_of_decision) se observa un incremento del número de decisiones con el correr de los años como se esperaba. Se observa la presencia de un patrón que exploré en mayor detalle en la Figura \ref{fig:figsx6}. Esta figura muestra que anteriormente solo veíamos un artefacto por el tamaño de bin en el histograma.
+
+```{r inspect_year, fig.height = 3, fig.width = 5, echo=FALSE, fig.cap="\\label{fig:figsx6}Cantidad de decisiones por año."}
+plotbaryear
+```
+
+2. Q-Q plot, chequeo la normalidad de los datos. Ver Figura \ref{fig:figsQQR}.
+
+```{r QQplot_r, warning = FALSE, message = FALSE, echo=FALSE, fig.width=10, fig.height=7, fig.cap="\\label{fig:figsQQR}Q-Q plot para cada variable del dataset de regresión."}
+plotqqR
+```
+
+  * Los datos no siguen una distribución normal. Al ser datos categóricos en su mayoría, no es factible aplicar una transformación para convertirlos a una distribución normal.
+
+
+3. Diagramas de caja (boxplots), permiten la identificación visual de estadísticas y presencia de outliers. Ver Figura \ref{fig:figsboxR}.
+
+```{r box_r, echo=FALSE, fig.width=10, fig.height=7, fig.cap="\\label{fig:figsboxR}Boxplots para cada variable del dataset de regresión."}
+plotboxR
+```
+
+#### Gráficos multivariados
+
+1. Análisis de correlación entre las variables. Ver Figura \ref{fig:corRR}.
+
+```{r cor_r, fig.width=5, fig.height=4, fig.cap="\\label{fig:corRR} Correlación entre variables del dataset de regresión."}
+datasetR.cor <- cor(datasetR)
+corrplot(datasetR.cor, method = "circle")
+```
+
+  * No existe una correlación elevada entre variables.
+
+2. Uso de la función _ggpairs_ de la librería _GGally_ para detectar posibles relaciones entre las variables. Ver Figura \ref{fig:figsggpR}.
+
+```{r viz1_r, echo = FALSE, warning=FALSE, message=FALSE, fig.width=13, fig.height=9, fig.cap="\\label{fig:figsggpR}Gráfico utilizando la funcion ggpairs para explorar relaciones entre variables del datset de regresión."}
+plotpairsR
+```
+
+  * De acuerdo a los valores de correlación y los gráficos exploratorios, la variable con mejor posibilidad de estar relacionada a la variable Y, es la variable X6.
+  * Debido a la naturaleza del dataset, con la presencia de varias variables categóricas es difícil indicar a priori cual de las otras variables tienen una posible relación lineal con la variable respuesta.
+
+3. Visualización de pares de variables por escala de grises. Ver Figura \ref{fig:greyR}.
+
+```{r gray, fig.width=8, fig.height=6, fig.cap="\\label{fig:greyR} Visualización de pares de variables por escala de grises, para el dataset de regresión."}
+temp <- datasetR
+plotgrayR <- plot(temp[,-dim(temp)[2]],pch=16,
+     col=gray(1-(temp[,dim(temp)[2]]/max(temp[,dim(temp)[2]]))))
+
+```
+
+
+\vskip 0.2in
+**Chequeo de hipótesis**
+
+Chequeo la hipótesis de que las decisiones que no tienen en cuenta las decisiones previas son inconstitucionales. Para esto utilizo un test chi cuadrado.
+```{r check_hip}
+chis <- chisq.test(table(datasetR$X3, datasetR$X4))
+chis
+```
+
+  * El p-valor significativo indica que ambas variables estan relacionadas.
+
+### Preprocesamiento dataset de Regresión
+
+Luego del análisis exploratorio de los datos, voy a proceder a realizar un tratamiento de los mismos, para luego avanzar con los modelos de clasificación.
+
+- Convierto a factor las variables categóricas.
+```{r factorizacion}
+datasetR$X2 <- as.factor(datasetR$X2)
+datasetR$X3 <- as.factor(datasetR$X3)
+datasetR$X4 <- as.factor(datasetR$X4)
+datasetR$X5 <- as.factor(datasetR$X5)
+datasetR$X7 <- as.factor(datasetR$X7)
+```
+
+
+## Set de datos clasificación (wisconsin)
+
+### Inspección del dataset
+
+```{r eda_clasificacion, echo = TRUE, results = 'hide'}
+# Lectura dataset clasificación: wisconsin
+datasetC <- read.csv("DATOS/Datasets Clasificacion/wisconsin/wisconsin.dat",
+                     comment.char = "@")
+# Asignación automática de nombres a las variables
+n <- length(names(datasetC)) - 1
+names(datasetC)[1:n] <- paste("X", 1:n, sep = "") # Variables predictoras
+names(datasetC)[n+1] <- "Y" # Variable respuesta
+
+# Guardo un dataset sin procesar para comparar la cross validation
+datasetC_sin_procesar <- datasetC
+datasetC_sin_procesar$Y <- as.factor(datasetC_sin_procesar$Y)
+
+class(datasetC)  # Donde se almacenan
+dim(datasetC)    # Dimensiones del dataset
+str(datasetC)    # Estructura del dataset, tipos de datos atómicos
+# Inspección de las primeras 10 filas
+head(datasetC)
+# Inspección de las ultimas 10 filas
+tail(datasetC)
+```
+
+### Estadística descriptiva
+
+Utilizo las funciones `summary` y `describe` para obtener estadísticas descriptivas del dataset.
+
+**Nota: los resultados de la función describe no se muestran debido a la longitud de los mismos.**
+```{r stats_clasi_d, results = 'hide'}
+describe(datasetC) # Estadísticas descriptivas básicas
+```
+
+```{r stats_clasi}
+summary(datasetC) # Estadísticas descriptivas básicas
+table(as.factor(datasetC$Y)) # Distribución de la variable respuesta
+```
+
+- Es un dataset multivariado.
+- El dataset consta de 682 observaciones de 10 variables. 
+- Cada una de las variables en las 10 columnas corresponde a un tipo de dato entero (int) de R al momento de cargar los datos. Son cuantitativas numéricas y toman valores discretos.
+- Las 9 variables independientes (predictoras) tienen valores en el rango 1-10
+- La variable dependiente (respuesta) toma dos valores 2-4, por lo tanto es categórica. Es necesario convertirla de tipo `int` a `factor`. 
+- La variable respuesta esta desbalanceada, un clasificador tonto que siempre asigne todas las observaciones a la clase mayoritaria obtendría un 64,95% de acierto.
+- No hay datos faltantes.
+
+Los nombres originales de las variables son los siguientes:
+
+- ClumpThickness
+- CellSize
+- CellShape
+- MarginalAdhesion
+- EpithelialSize
+- BareNuclei
+- BlandChromatin
+- NormalNucleoli
+- Mitoses
+- Class (2 benigno, 4 maligno)
+
+\vskip 0.2in
+**Chequeo la existencia de duplicados**
+```{r duplicados}
+nrow(datasetC[duplicated(datasetC), ])
+```
+
+Existe 233 observaciones duplicadas.
+Al ser tantas muestras duplicadas, decido no realizar ninguna acción sobre ellas, asumiendo que se trata de observaciones independientes.
+
+### Visualización del dataset
+
+```{r plots_clasi_R, message=FALSE, warning=FALSE}
+# Para facilitar el uso de ggplot2, genero un nuevo dataframe en 
+# formato `long` en lugar de `wide`.
+datasetC$Y <- as.factor(datasetC$Y)
+datasetC_long <- melt(data = datasetC)
+
+# Histograma
+plothistC <- ggplot(datasetC_long, aes(x = value)) + 
+    geom_histogram(aes(y =..density..),
+                   breaks = seq(0, 10, by = 2.5)) +
+stat_function(fun = dnorm, 
+              args = list(mean = mean(datasetC_long$value), 
+                          sd = sd(datasetC_long$value))) +
+   facet_wrap(~variable) + xlab("Valor") + ylab("Conteo") +
+   theme_light()
+
+# Grafico de densidad respecto a la variable Y
+plotdensidadC <- ggplot(datasetC_long, aes(x = value, fill = Y, colour = Y)) +
+   geom_density(alpha = 0.1) +
+   facet_wrap(~variable) +
+   xlab("Valor") + ylab("Densidad") +
+   theme_light()
+
+# Q-Q plot
+plotqqC <- ggplot(datasetC_long, aes(sample = value)) +
+  stat_qq() +
+  stat_qq_line() +
+  xlab("Teórico") + ylab("Muestra") +
+  facet_wrap(~variable) +
+  theme_light()
+
+# Boxplot
+plotboxC <- ggplot(data = datasetC_long, aes(x = variable, y = value)) + 
+  geom_boxplot() +
+  xlab("Variable") + ylab("Valor") +
+  theme_light()
+
+# Pairs plot GGally library
+plotpairsC <- ggpairs(data = datasetC)
+
+```
+
+#### Gráficos Univariados
+
+1. Histogramas: chequeo de la distribución de los datos. Ver Figura \ref{fig:figshistC}.
+
+```{r histograma_cla, echo = FALSE, fig.width=10, fig.height=7, fig.cap="\\label{fig:figshistC}Histogramas para cada variable del dataset de clasificación."}
+plothistC
+```
+
+2. Gráficos de densidad, considerando las categorías de la variable respuesta. Ver Figura \ref{fig:figsdenC}.
+
+```{r densidad, echo = FALSE, fig.width=10, fig.height=7, fig.cap="\\label{fig:figsdenC}Gráfico de densidad para cada variable del dataset de clasificación."}
+plotdensidadC
+```
+
+  * Se puede observar que la distribución de las variables predictoras, es diferente en función de la variable respuesta.
+
+3. q-q plots, chequeo de la normalidad de los datos. Ver Figura \ref{fig:figsqqC}.
+
+```{r qqplot, echo = FALSE, fig.width=10, fig.height=7, fig.cap="\\label{fig:figsqqC}q-q plots para las variables del dataset de clasificación"}
+plotqqC
+```
+
+4. Boxplot de los datos, identificación de outliers. Ver Figura \ref{fig:figsboxppC}.
+
+```{r box, echo = FALSE, fig.width=10, fig.height=7, fig.cap="\\label{fig:figsboxppC}Boxplots para las variables del dataset de clasificación"}
+plotboxC
+```
+
+  * La visualización de los boxplots indica la existencia de outliers en 5 variables: X4, X5, X7, X8 y X9. Siendo X9 la más afectada por los outliers.
+
+#### Gráficos multivariados
+
+1. Análisis de correlación entre las variables. Ver Figura \ref{fig:figsCORC}.
+
+```{r cor, fig.cap="\\label{fig:figsCORC}Gráfico de correlación entre las variables del dataset de clasificación"}
+datasetC.cor <- cor(datasetC[, 1:9])
+corrplot(datasetC.cor, method = "number")
+```
+
+  * Hay variables que se encuentran correlacionadas. Estas variables contienen información redundante. Es recomendable remover este tipo de variables, para evitar bias en los modelos.
+
+2. Inspección de los datos para detectar posibles relaciones entre las variables. Ver Figura \ref{fig:figsGGPC}.
+
+```{r viz1, echo = FALSE, fig.width = 13, fig.height = 8, warning=FALSE, message=FALSE, fig.cap="\\label{fig:figsGGPC}Gráfico con la función ggpairs para explorar posibles relaciones entre las variables"}
+plotpairsC
+
+```
+
+
+### Preprocesamiento dataset de Clasificación
+
+Luego del análisis exploratorio de los datos, voy a proceder a realizar un tratamiento de los mismos, para luego avanzar con los modelos de clasificación.
+
+Asigno la variable respuesta a tipo factor
+```{r change_response}
+datasetC$Y <- as.factor(datasetC$Y)
+```
+
+- Remoción de variables con correlación. Defino un threshold de 0.9, remuevo variables con una correlación mayor, dejando la de menor media con respecto al resto de variables.
+```{r remove_cor}
+highCor <- colnames(datasetC)[findCorrelation(datasetC.cor, cutoff = 0.9, verbose = TRUE)]
+datasetC <- datasetC[, which(!colnames(datasetC) %in% highCor)]
+```
+
+En este caso X2 y X3 tienen una correlación de 0.91, se elimina X2 ya que la suma de correlaciones es 6.63, y la de X3 6.57.
+
+- Transformación de outliers: En los gráficos boxplot se pudo observar la presencia de outliers para las variables X4, X5, X7, X8 y principalmente X9. Inicialmente chequeo la distribución de valores con respecto a la variable dependiente, para elegir los rangos adecuados.
+
+```{r box_X9}
+table(datasetC$X9, datasetC$Y)
+```
+
+```{r box_X5}
+table(datasetC$X5, datasetC$Y)
+```
+
+```{r box_X4}
+table(datasetC$X4, datasetC$Y)
+```
+
+
+```{r box_X7}
+table(datasetC$X7, datasetC$Y)
+```
+
+```{r box_X8}
+table(datasetC$X8, datasetC$Y)
+```
+
+Binning de variables, para eliminar outliers.
+```{r proc_outliers}
+datasetC$X9 <- as.integer(as.character(cut(datasetC$X9,
+                                           breaks = c(0,1,10), labels =c(1, 2))))
+datasetC$X5 <- as.integer(as.character(cut(datasetC$X5,
+                                           breaks = c(0,2,10), labels =c(1, 2))))
+datasetC$X4 <- as.integer(as.character(cut(datasetC$X4,
+                                           breaks = c(0,1,3,10), labels =c(1, 2, 3))))
+datasetC$X7 <- as.integer(as.character(cut(datasetC$X7,
+                                           breaks = c(0,2,3,10), labels =c(1, 2, 3))))
+datasetC$X8 <- as.integer(as.character(cut(datasetC$X8,
+                                           breaks = c(0,2,10), labels =c(1, 2))))
+```
+
+- Normalización: En este punto tengo dos sets de datos, al que le realize el pre-procesamiento (remoción de variable con alta correlación y binning), y el original. Voy a normalizar ambos, luego utilizaré cross-validation para determinar si el pre-procesamiento mejora los modelos o no.
+
+```{r scale}
+# Dataset preprocesado
+Y_values = datasetC$Y
+datasetC <- as.data.frame(scale(datasetC[,-ncol(datasetC)], center = TRUE, scale = TRUE))
+datasetC$Y <- Y_values
+
+# Dataset sin preprocesar
+datasetC_sin_procesar <- as.data.frame(scale(
+  datasetC_sin_procesar[,-ncol(datasetC_sin_procesar)], 
+  center = TRUE, scale = TRUE))
+datasetC_sin_procesar$Y <- Y_values
+```
+
+\newpage
+
+# Apartado Regresión
+Debido a la naturaleza del dataset, con la presencia de varias variables categóricas, la variable mas factible de estar relacionada es X6, con un valor de correlación de -0.655. Voy a preseleccionar y probar 5 variables.
+
+Probare todas excepto X4 y X5, ya que luego del análisis exploratorio de datos, teniendo en cuenta los valores de correlación, son las que aparentan ser menos significativas para realizar un modelo.
+
+Comenzaré un proceso de **_forward selection_** creando modelos lineales simples. A través del análisis del estadístico F y el estadístico t, determinaré si una variable tiene relacion lineal con la variable respuesta. A través del coeficiente de determinación R^2^ (r cuadrado) sabré que porcentaje de la varianza de la variable respuesta esta explicada por una variable independiente. La raíz del error cuadrático medio (RMSE) sera utilizada para calcular la diferencia entre los valores predichos y los valores reales observados.
+
+## Construcción de modelos lineales simples
+```{r reg_simple_1, warning = FALSE}
+# Variables para almacenar los resultados y luego comparar con KNN
+modelos_comparar <- c()
+metodos_comparar <- c()
+RMSE_comparar <- c()
+
+# Construyo un modelo de regresión para la variable X1
+fit1 <- lm(Y~X1, datasetR)
+# Obtengo información del modelo
+fit1
+summary(fit1)
+# Cálculo manual del RMSE
+RMSEfit1 <- sqrt(sum(fit1$residuals^2)/(length(fit1$residuals)-2))
+```
+
+Repito para el resto de las variables
+
+```{r reg_simple_2}
+fit2 <- lm(Y~X2, datasetR)
+fit2
+summary(fit2)
+RMSEfit2 <- sqrt(sum(fit2$residuals^2)/(length(fit2$residuals)-2))
+```
+
+```{r reg_simple_3}
+fit3 <- lm(Y~X3, datasetR)
+fit3
+summary(fit3)
+RMSEfit3 <- sqrt(sum(fit3$residuals^2)/(length(fit3$residuals)-2))
+```
+
+```{r reg_simple_6}
+fit6 <- lm(Y~X6, datasetR)
+fit6
+summary(fit6)
+RMSEfit6 <- sqrt(sum(fit6$residuals^2)/(length(fit6$residuals)-2))
+```
+
+```{r reg_simple_7}
+fit7 <- lm(Y~X7, datasetR)
+fit7
+summary(fit7)
+RMSEfit7 <- sqrt(sum(fit7$residuals^2)/(length(fit7$residuals)-2))
+```
+
+Genero una tabla de resultados
+```{r df_variables, show = FALSE}
+# Genero un vector de variables pre seleccionadas
+variables_elegidas <- c("X1", "X2", "X3", "X6", "X7")
+
+# Genero un vector con los p-valores del estadístico t para cada modelo
+p_valores_elegidas <- c(summary(fit1)$coefficients[,4][2],
+               summary(fit2)$coefficients[,4][2],
+               summary(fit3)$coefficients[,4][2],
+               summary(fit6)$coefficients[,4][2],
+               summary(fit7)$coefficients[,4][2]
+               )
+
+# Genero un vector con los valores de R2 para cada modelo
+r2_elegidas <- c(summary(fit1)$r.squared,
+               summary(fit2)$r.squared,
+               summary(fit3)$r.squared,
+               summary(fit6)$r.squared,
+               summary(fit7)$r.squared
+               )
+
+rmse_elegidas <- c(RMSEfit1,
+                   RMSEfit2,
+                   RMSEfit3,
+                   RMSEfit6,
+                   RMSEfit7
+                   )
+
+# Armo el dataframe
+df_elegidas <- data.frame(Variable = variables_elegidas,
+                          Pval = p_valores_elegidas,
+                          R2 = r2_elegidas,
+                          RMSE = rmse_elegidas)
+
+# Sin nombre de filas
+rownames(df_elegidas) <- c()
+
+# Muestro la tabla
+kable(df_elegidas, 
+      format = "latex", 
+      booktabs = TRUE, 
+      caption="\\label{tab:tab0}P-valor del estadístico t, R2 y RMSE
+      para las 5 variables pre-seleccionadas.")
+```
+
+### Selección del mejor modelo lineal simple
+
+El estadístico t, testea la hipótesis nula de que no hay asociación entre la variable predictora y respuesta. Existen 4 variables (X6, X7, X2 y X3) que poseen un p-valor significativo, por lo tanto se rechaza la hipótesis nula de que las variables no estan asociadas, y aceptamos la hipótesis alternativa de que hay una relación entre la variable predictora y respuesta (**Tabla \ref{tab:tab0}**). La variable X1 no fue significativa en el test de hipótesis con un alfa = 0.05.
+
+De los 5 modelos pre-seleccionados el que tiene un menor RMSE es el que contempla a la variable X6, RMSE=0.4152. Su R2 adjustado es de 0.429, es decir que explica el 42,9% de la variabilidad de la variable dependiente Y, y su p-valor significativo para el estadístico t, indica que la relación no es al azar (ver **Tabla \ref{tab:tab0}**).
+
+
+\vskip 0.2in
+**Visualización del modelo para X6.** 
+
+Ver Figura. \ref{fig:modX6}
+
+```{r viz_model_X6, fig.width=6, fig.height=4, fig.cap="\\label{fig:modX6} Visualización del modelo para X6."}
+plot(Y~X6, datasetR) # Gráfico de dispersion Y en función de X6
+# Añado la línea de regresión
+abline(fit6, col="red")
+confint(fit6)
+```
+
+```{r RMSE_model_X6}
+# Guardo la información para comparar
+modelos_comparar <- c(modelos_comparar, ("X6"))
+metodos_comparar <- c(metodos_comparar, ("LM"))
+RMSE_comparar <- c(RMSE_comparar, RMSEfit6)
+```
+
+## Construcción de modelos lineales múltiples
+
+Comenzaré con un modelo que contemple todas las variables, y luego realizaré **_backward selection_**, el objetivo es determinar si se puede obtener un modelo más preciso incorporando mayor complejidad al mismo.
+
+```{r reg_mul_all}
+# Construyo un modelo lineal múltiple con todas las varibles y muestro
+# información del mismo
+fitmul1 <- lm(Y~., datasetR)
+fitmul1
+summary(fitmul1)
+RMSEfitmul1 <- sqrt(sum(fitmul1$residuals^2)/(length(fitmul1$residuals)-2))
+```
+
+El estadístico F con un valor de 447 nos indica que al menos 1 de las variables independientes tiene una relación lineal con la variable dependiente, esto ya lo sabíamos de los modelos lineales simples.
+
+A través de la inspección de los p-valores individuales para el estadístico t de cada variable independiente, podemos observar que las 5 variables seleccionadas en el paso anterior (regresiones lineales simples) son significativas con un alfa = 0.05. En este caso X1, también esta por debajo del alfa. El R2 ajustado del modelo lineal mútiple es 0.4358, es decir que el 43,6% de la variabilidad de la variable dependiente se explica con este modelo.
+
+Como parte del proceso de backward selection comenzaré a eliminar variables del modelo y analizar el resultado. Iré eliminando la variable con el p-valor más alto. Consideraré dos cosas para continuar con este proceso, a) eliminar todas las variables cuyos p-valores no sean significativos, o b) que se produzca una perdida significativa en el R2.
+
+Inicialmente construiré un modelo con todas las variables excepto X5.
+
+```{r reg_mul_all1}
+fitmul2 <- lm(Y~.-X5, datasetR)
+fitmul2
+summary(fitmul2)
+RMSEfitmul2 <- sqrt(sum(fitmul2$residuals^2)/(length(fitmul2$residuals)-2))
+```
+
+* El valor de R2 practicamente no se modifico. Ahora eliminare también X4, ya que no es significativa.
+
+```{r reg_mul_all2}
+fitmul3 <- lm(Y~.-X5-X4, datasetR)
+fitmul3
+summary(fitmul3)
+RMSEfitmul3 <- sqrt(sum(fitmul3$residuals^2)/(length(fitmul3$residuals)-2))
+```
+
+Todas las variables del modelo son significativas para el estadístico t.
+
+Finalizo el proceso de backward selection, ya que llegue al criterio de que todas las variables predictoras del modelo sean significativas.
+
+```{r rmse_multil}
+# Agrego la información al dataframe de comparaciones
+modelos_comparar <- c(modelos_comparar, ".-X5-X4")
+metodos_comparar <- c(metodos_comparar, ("LM"))
+RMSE_comparar <- c(RMSE_comparar, RMSEfitmul3)
+```
+
+\vskip 0.2in
+**Conclusiones parciales**
+
+Un modelo lineal múltiple que contempla a las variables X1, X2, X3, X6 y X7 explica casi la misma variabilidad de la variable dependiente que un modelo lineal simple que solo contempla a la variable X6, 43.6% vs 42.9%
+La diferencia es la interpretabilidad de ambos modelos. El modelo que solo contempla a X6 es más facil de interpretar que el modelo que contempla a 5 variables. El RMSE de ambos modelos es 0.41.
+
+## Construcción de modelos considerando interacciones y no linealidad
+
+Probare modelos no lineales e interacciones, para tratar de mejorar el modelo. A partir de los resultados anteriores, la intuición indica que lo más interesante a probar son modelos no lineales que trabajen sobre la variable X6.
+```{r int_nolin}
+# Construyo un modelo no linea y muestro información
+fitinl1 <- lm(Y~ X6 + I(sqrt(X6)), datasetR)
+fitinl1
+summary(fitinl1)
+
+# Repito el proceso para distintos modelos no lineales y/o con interacciones
+fitinl2 <- lm(Y~ X6 + I(log(X6)), datasetR)
+fitinl2
+summary(fitinl2)
+
+fitinl3 <- lm(Y~ X6 + I(X6^2), datasetR)
+fitinl3
+summary(fitinl3)
+
+fitinl4 <- lm(Y~ X6 + I(X6^2) + X1 + I(X1^2) + X6*X1, datasetR)
+fitinl4
+summary(fitinl4)
+
+fitinl5 <- lm(Y~ X6 + X3 + X6*X3 + I(X6^2), datasetR)
+fitinl5
+summary(fitinl5)
+
+fitinl6 <- lm(Y~ X6 + I(X6^2) + I(X6^3), datasetR)
+fitinl6
+summary(fitinl6)
+
+fitinl6b <- lm(Y~ X6 + I(X6^2) + I(X6^3) + I(X6^4), datasetR)
+fitinl6b
+summary(fitinl6b)
+```
+
+\vskip 0.2in
+**R-2. Conclusiones parciales**
+
+Luego de probar modelos con interacciones y terminos no lineales, llego a la conclusion que la mayor ganancia en precisión en la etapa de modelado, se da al incorporar términos no lineales para la variable X6. El R2 de un modelo con un termino cuadrático para X6 se incrementa a 0.77 con un RMSE de 0.26. El R2 trepa hasta 0.93 con la incoporación de un termino cúbico y el RMSE baja a 0.14. No se produce una mejora en el R2 al agregar un termino de grado 4 para X6.
+
+Calculo el RMSE para los dos modelos que explican la mayor variabilidad de acuerdo al R2.
+
+```{r comparacion_cua_cub}
+# Guardo la información para comparar
+modelos_comparar <- c(modelos_comparar, "X6+X6^2", "X6+X6^2+X6^3")
+metodos_comparar <- c(metodos_comparar, c("LM", "LM"))
+RMSEfitinl3 <- sqrt(sum(fitinl3$residuals^2)/(length(fitinl3$residuals)-2))
+RMSEfitinl6 <- sqrt(sum(fitinl6$residuals^2)/(length(fitinl6$residuals)-2))
+RMSE_comparar <- c(RMSE_comparar, RMSEfitinl3, RMSEfitinl6)
+```
+
+
+**Conclusiones finales regresiones**
+
+Luego de realizar el análisis con regresión lineal simple, múltiple y no lineal + interacciones, selecciono 4 modelos:
+
+* Y ~ X6: Modelo lineal simple que explica el 42,9% de la variabilidad de Y.
+* Y ~ . -X5 -X4: Modelo lineal múltiple, es un poco más preciso y explica el 43,6% de la variabilidad de Y. Sin embargo es más complejo que el modelo que solo contempla a X6, y no genera una ganancia en precisión.
+* Y ~ X6 + I(X6^2) y Y ~ X6 + I(X6^2) + I(X6^3): Con el agregado de termino polinómicos mejoramos la precision, disminuyendo el RMSE y mejorando la variabilidad explicada. Selecciono estos dos modelos para analizar si el modelo con el termino de grado 3, no sobreajustada demasiado con respecto al modelo de grado 2.
+
+## k-NN
+
+Para comenzar con k-NN voy a probar los modelos más interesantes obtenidos con regresiones lineales y no lineales, pero utilizando k-NN, y compararé la raíz del error cuadrático medio (RMSE) del mismo modelo con los dos métodos.
+
+```{r knn_reg}
+fitknn1 <- kknn(Y ~ X6, datasetR, datasetR) # Construyo el modelo
+fitknn1 # Printeo informacion del modelo
+yprime <- fitknn1$fitted.values # Obtengo los valores predichos por el modelo
+RMSEknn1 <- sqrt(sum((datasetR$Y-yprime)^2)/length(yprime)) # calculo del RMSE
+RMSEknn1 # Muestro el RMSE
+# Almaceno la información para comparar
+modelos_comparar <- c(modelos_comparar, "X6") 
+metodos_comparar <- c(metodos_comparar, "k-NN")
+RMSE_comparar <- c(RMSE_comparar, RMSEknn1)
+
+# Repito el proceso para el resto de modelos seleccionados con regresiones
+fitknn2 <- kknn(Y ~ . -X5 -X4, datasetR, datasetR)
+fitknn2
+yprime <- fitknn2$fitted.values
+RMSEknn2 <- sqrt(sum((datasetR$Y-yprime)^2)/length(yprime)) #RMSE
+RMSEknn2
+modelos_comparar <- c(modelos_comparar, ".-X5-X4")
+metodos_comparar <- c(metodos_comparar, "k-NN")
+RMSE_comparar <- c(RMSE_comparar, RMSEknn2)
+
+fitknn3 <- kknn(Y ~ X6 + I(X6^2), datasetR, datasetR)
+fitknn3
+yprime <- fitknn3$fitted.values
+RMSEknn3 <- sqrt(sum((datasetR$Y-yprime)^2)/length(yprime)) #RMSE
+RMSEknn3
+modelos_comparar <- c(modelos_comparar, "X6+X6^2")
+metodos_comparar <- c(metodos_comparar, "k-NN")
+RMSE_comparar <- c(RMSE_comparar, RMSEknn3)
+
+fitknn4 <- kknn(Y ~ X6 + I(X6^2) + I(X6^3), datasetR, datasetR)
+fitknn4
+yprime <- fitknn4$fitted.values
+RMSEknn4 <- sqrt(sum((datasetR$Y-yprime)^2)/length(yprime)) #RMSE
+RMSEknn4
+modelos_comparar <- c(modelos_comparar, "X6+X6^2+X6^3")
+metodos_comparar <- c(metodos_comparar, "k-NN")
+RMSE_comparar <- c(RMSE_comparar, RMSEknn4)
+```
+
+```{r cvR_explore, fig.cap="\\label{fig:cvRcomp}Comparación diferentes modelos empleando regresión lineal y k-NN."}
+# Creo un dataframe para almacenar los resultados y grafico
+df_cv_R <- data.frame(Algoritmo = metodos_comparar, 
+                      Modelo = modelos_comparar, RMSE = RMSE_comparar)
+
+# Genero una tabla de resultados
+kable(df_cv_R, format = "latex", booktabs = TRUE, 
+      caption = "\\label{tab:tab1}Comparación modelos utilizando regresión vs k-NN")
+
+# grafico los resultados
+ggplot(data = df_cv_R, aes(x = Modelo, y = RMSE, fill = Algoritmo)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  theme_light() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) + ggtitle("RMSE LM vs k-NN")
+
+```
+
+\vskip 0.2in
+**R-3. Conclusiones parciales**
+
+- Se puede observar que el RMSE es menor cuando comparo el mismo modelo modificando el algoritmo (Ver **Tabla \ref{tab:tab1}**), es decir el mismo modelo si uso k-NN tiene un menor RMSE que utilizando regresión lineal o múltiple.
+- El modelo con menor RMSE es el que contempla a todas las variables menos X5 y X4. La Figura \ref{fig:cvRcomp} y **Tabla \ref{tab:tab1}** compara 4 modelos para las mismas variables utilizando algoritmos de regresión lineal y múltiple versus k-NN.
+
+
+### Prueba de modelos k-NN
+Los mejores modelos para k-NN no necesariamente serán los mismos que para regresion lineal, múltiple o no lineal, por lo tanto probaré algunos modelos, y los evaluare calculando el RMSE.
+
+```{r knn_reg_2}
+fitknn5 <- kknn(Y ~ X6 + X1, datasetR, datasetR) # Construyo el modelo
+yprime <- fitknn5$fitted.values # Obtengo los valores predichos por el modelo
+RMSEknn5 <- sqrt(sum((datasetR$Y-yprime)^2)/length(yprime)) # calculo del RMSE
+RMSEknn5 # Muestro el RMSE
+
+fitknn6 <- kknn(Y ~ X6 + X2, datasetR, datasetR) # Construyo el modelo
+yprime <- fitknn6$fitted.values # Obtengo los valores predichos por el modelo
+RMSEknn6 <- sqrt(sum((datasetR$Y-yprime)^2)/length(yprime)) # calculo del RMSE
+RMSEknn6 # Muestro el RMSE
+
+fitknn7 <- kknn(Y ~ X6 + X3, datasetR, datasetR) # Construyo el modelo
+yprime <- fitknn7$fitted.values # Obtengo los valores predichos por el modelo
+RMSEknn7 <- sqrt(sum((datasetR$Y-yprime)^2)/length(yprime)) # calculo del RMSE
+RMSEknn7 # Muestro el RMSE
+
+fitknn8 <- kknn(Y ~ X6 + X4, datasetR, datasetR) # Construyo el modelo
+yprime <- fitknn8$fitted.values # Obtengo los valores predichos por el modelo
+RMSEknn8 <- sqrt(sum((datasetR$Y-yprime)^2)/length(yprime)) # calculo del RMSE
+RMSEknn8 # Muestro el RMSE
+
+fitknn9 <- kknn(Y ~ X6 + X5, datasetR, datasetR) # Construyo el modelo
+yprime <- fitknn9$fitted.values # Obtengo los valores predichos por el modelo
+RMSEknn9 <- sqrt(sum((datasetR$Y-yprime)^2)/length(yprime)) # calculo del RMSE
+RMSEknn9 # Muestro el RMSE
+
+fitknn10 <- kknn(Y ~ X6 + X7, datasetR, datasetR) # Construyo el modelo
+yprime <- fitknn10$fitted.values # Obtengo los valores predichos por el modelo
+RMSEknn10 <- sqrt(sum((datasetR$Y-yprime)^2)/length(yprime)) # calculo del RMSE
+RMSEknn10 # Muestro el RMSE
+
+fitknn11 <- kknn(Y ~ X6*X1, datasetR, datasetR) # Construyo el modelo
+yprime <- fitknn11$fitted.values # Obtengo los valores predichos por el modelo
+RMSEknn11 <- sqrt(sum((datasetR$Y-yprime)^2)/length(yprime)) # calculo del RMSE
+RMSEknn11 # Muestro el RMSE
+
+```
+
+\vskip 0.2in
+**Conclusiones parciales**
+
+Los modelos X6+X1 y X6*X1 tienen un RMSE menor al menor modelo obtenido anteriormente, son los dos mejores modelos obtenidos con k-NN.
+
+## Cross validation
+Finalmente para observar que tan bien generalizan los modelos construidos en los pasos anteriores, voy a realizar 5-Fold Cross Validation.
+
+Voy a probar los dos mejores modelos obtenidos con regresión y los dos mejores modelos obtenidos con k-NN, teniendo en cuenta el RMSE. Los modelos seleccionados son los siguientes:
+
+**Regresión lineal, múltiple o interacciones**
+
+- Y ~ X6 + I(X6^2)
+- Y ~ X6 + I(X6^2) + I(X6^3)
+
+**k-NN**
+
+- Y ~ X6+X1
+- Y ~ X6*X1
+
+Voy a calcular el **error cuadrático medio** tanto para training como testing de los 4 modelos seleccionados empleando modelos lineales simples y múltiples, además de k-NN.
+
+
+```{r cross_validation_R, fig.cap="\\label{fig:crosval5}Comparación 5-fold cross validation LM vs k-NN"}
+
+# Función para ejecutar 5 fold cross validation con modelos lineales
+# Toma como entradas:
+# -i: indice del fold
+# -x: nombre del archivo con los datos
+# -formula: variables para construir el modelo
+# -tt: dataset de train o test, para calcular el MSE
+# Retorna: MSE
+run_lm_fold <- function(i, x, formula, tt = "test") {
+  file <- paste(x, "-5-", i, "tra.dat", sep="");
+  x_tra <- read.csv(file, comment.char="@")
+  file <- paste(x, "-5-", i, "tst.dat", sep="")
+  x_tst <- read.csv(file, comment.char="@")
+  In <- length(names(x_tra)) - 1
+  names(x_tra)[1:In] <- paste ("X", 1:In, sep="")
+  names(x_tra)[In+1] <- "Y"
+  names(x_tst)[1:In] <- paste ("X", 1:In, sep="")
+  names(x_tst)[In+1] <- "Y"
+  if(tt == "train") {test <- x_tra}
+  else {test <- x_tst}
+  fitMulti = lm(paste("Y ~ ", formula, sep = ""), data = x_tra) 
+  yprime = predict(fitMulti, test)
+  sum(abs(test$Y - yprime)^2)/length(yprime) #MSE
+}
+
+# Función para ejecutar 5 fold cross validation con KNN
+# Toma como entradas:
+# -i: indice del fold
+# -x: nombre del archivo con los datos
+# -formula: variables para construir el modelo
+# -tt: dataset de train o test, para calcular el MSE
+# Retorna: MSE
+run_knn_fold <- function(i, x, formula, tt = "test") {
+  file <- paste(x, "-5-", i, "tra.dat", sep="")
+  x_tra <- read.csv(file, comment.char="@")
+  file <- paste(x, "-5-", i, "tst.dat", sep="")
+  x_tst <- read.csv(file, comment.char="@")
+  In <- length(names(x_tra)) - 1
+  names(x_tra)[1:In] <- paste ("X", 1:In, sep="")
+  names(x_tra)[In+1] <- "Y"
+  names(x_tst)[1:In] <- paste ("X", 1:In, sep="")
+  names(x_tst)[In+1] <- "Y"
+  if(tt == "train") {
+    test <- x_tra
+  } else {
+    test <- x_tst
+  }
+  fitMulti=kknn( paste("Y~", formula, sep = ""), x_tra, test)
+  yprime=fitMulti$fitted.values
+  sum(abs(test$Y-yprime)^2)/length(yprime) # MSE
+}
+
+# Variables para almacenar resultados
+modelo <- c()
+método <- c()
+MSEtrain <- c()
+MSEtest <- c()
+
+# Nombre del dataset
+nombre <- "DATOS/Datasets\ Regresion/ANACALT/ANACALT"
+
+# Pruebo el modelo Y~X6+I(X6^2)
+# MSE train
+lmMSEtrain<-mean(sapply(1:5, run_lm_fold, 
+                        nombre, "X6+I(X6^2)", "train"))
+# MSE test
+lmMSEtest<-mean(sapply(1:5, run_lm_fold, 
+                       nombre, "X6+I(X6^2)", "test"))
+# Guardo la información de resultados
+modelo <- c(modelo, "X6+I(X6^2)")
+método <- c(método, "LM")
+MSEtrain <- c(MSEtrain, lmMSEtrain)
+MSEtest <- c(MSEtest, lmMSEtest)
+
+# Pruebo el modelo Y~X6+I(X6^2)+I(X6^3)
+lmMSEtrain<-mean(sapply(1:5, run_lm_fold, nombre, "X6+I(X6^2)+I(X6^3)", "train"))
+lmMSEtest<-mean(sapply(1:5,run_lm_fold, nombre, "X6+I(X6^2)+I(X6^3)", "test"))
+modelo <- c(modelo, "X6+I(X6^2)+I(X6^3)")
+método <- c(método, "LM")
+MSEtrain <- c(MSEtrain, lmMSEtrain)
+MSEtest <- c(MSEtest, lmMSEtest)
+
+# ------------------------------------------------
+# KNN
+# Pruebo el modelo Y~X6+X1
+knnMSEtrain<-mean(sapply(1:5, run_knn_fold, nombre, "X6+X1", "train"))
+knnMSEtest<-mean(sapply(1:5,run_knn_fold, nombre, "X6+X1", "test"))
+modelo <- c(modelo, "X6+X1")
+método <- c(método, "k-NN")
+MSEtrain <- c(MSEtrain, knnMSEtrain)
+MSEtest <- c(MSEtest, knnMSEtest)
+
+# Pruebo el modelo Y~X6*X1
+knnMSEtrain<-mean(sapply(1:5, run_knn_fold, nombre, "X6*X1", "train"))
+knnMSEtest<-mean(sapply(1:5,run_knn_fold, nombre, "X6*X1", "test"))
+modelo <- c(modelo, "X6*X1")
+método <- c(método, "k-NN")
+MSEtrain <- c(MSEtrain, knnMSEtrain)
+MSEtest <- c(MSEtest, knnMSEtest)
+
+# Creo un dataframe para graficar los resultados
+método <- as.factor(método)
+modelo <- as.factor(modelo)
+df <- data.frame(Método = método, Modelo = modelo,
+                 MSEtrain = MSEtrain, MSEtest = MSEtest)
+
+# Genero tabla de resultados
+kable(df, format="latex", booktabs = TRUE, 
+      caption = "\\label{tab:tab2}Resultados cross-validation regresión")
+
+# Grafico los resultados
+df <- melt(df)
+ggplot(data = df, aes(x = Modelo, y = value, fill = variable)) + 
+  geom_bar(stat = "identity", position = "dodge") + 
+  facet_wrap(~Método, scales = "free_x") + 
+  theme_light() + 
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  ylab("MSE")
+
+```
+
+\vskip 0.2in
+**Conclusiones parciales**
+
+Se puede observar que el algoritmo k-NN obtiene los mejores resultados de cross-validation. El mejor resultado es para el modelo X6+X1 que tiene un MSE en test de 0.0069. Ver **Tabla \ref{tab:tab2}**.
+
+## Comparación estadística de algoritmos regresión (R.4)
+
+Procedere a comparar diferentes algoritmos. Para comenzar los resultados de los modelos de regresion lineal vs k-NN y luego agregaré a la comparación el algoritmo M5'.
+
+```{r comparacion_w_R}
+# Calculo los errores medios de train y test, para k-NN y LM utilizando todas las variables, 
+# para reemplazar en la tabla
+lmMSEtrainAll<-mean(sapply(1:5, run_lm_fold, nombre, ".", "train"))
+lmMSEtestAll<-mean(sapply(1:5,run_lm_fold, nombre, ".", "test"))
+
+knnMSEtrainAll<-mean(sapply(1:5, run_knn_fold, nombre, ".", "train"))
+knnMSEtestAll<-mean(sapply(1:5,run_knn_fold, nombre, ".", "test"))
+
+
+# Lectura de los datos
+#leemos la tabla con los errores medios de test
+resultados <- read.csv("regr_test_alumnos.csv")
+tablatst <- cbind(resultados[,2:dim(resultados)[2]])
+colnames(tablatst) <- names(resultados)[2:dim(resultados)[2]]
+rownames(tablatst) <- resultados[,1]
+# Reemplazo por mis valores
+tablatst['ANACALT', 1] <- lmMSEtestAll # lm
+tablatst['ANACALT', 2] <- knnMSEtestAll # KNN
+
+kable(tablatst, format = "latex", booktabs = TRUE, caption = 
+        "\\label{tab:tabCAR1}Errores medios de test para los algoritmos k-NN, lm y M5'")
+
+#leemos la tabla con los errores medios de entrenamiento
+resultados <- read.csv("regr_train_alumnos.csv")
+tablatra <- cbind(resultados[,2:dim(resultados)[2]])
+colnames(tablatra) <- names(resultados)[2:dim(resultados)[2]]
+rownames(tablatra) <- resultados[,1]
+# Reemplazo por mis valores
+tablatra['ANACALT', 1] <- lmMSEtrainAll # lm
+tablatra['ANACALT', 2] <- knnMSEtrainAll # KNN
+
+kable(tablatra, format = "latex", booktabs = TRUE, caption = 
+        "\\label{tab:tabCAR1}Errores medios de train para los algoritmos k-NN, lm y M5'")
+
+```
+
+### Wilcoxon
+Primero realizare una comparativa de a pares entre los algoritmos de LM y k-NN utilizando el test de Wilcoxon. Este test contrasta la hipótesis de que las medianas son iguales frente a que son distintas (también caben otras alternativas) y únicamente se tienen en cuenta las situaciones relativas (ranks) de los valores (no se tiene en cuenta las magnitudes de las diferencias).
+
+Primero es necesario normalizar las medidas del error. En este caso estamos utilizando el error cuadrático medio, y este valor depende de cada dataset en particular. Por esto utilizare la siguiente normalización[^1]:
+
+DIFF = ( Mean(Other) - Mean(Reference Algorithm) ) / Mean(Other) 
+
+[^1]: M.J. Gacto, R. Alcalá, F. Herrera, Integration of an Index to Preserve the Semantic Interpretability in the Multi-Objective Evolutionary Rule Selection and Tuning of Linguistic Fuzzy Systems. IEEE Transactions on Fuzzy Systems 18:3 (2010) 515-531
+
+El algoritmo de referencia es el que creemos que es mejor, de acuerdo las medidas de error que obtuvimos durante los análisis, en este caso k-NN.
+
+**Datos de test**
+```{r comparacion_w_R_norm_tst}
+# Normalización del error
+
+# Se monta una nueva tabla donde para cada conjunto de datos, si la
+# diferencia es positiva se pone 0 para Other y abs(DIFF) para Ref.Alg., y
+# a la inversa si es negativa
+
+##lm (other) vs knn (ref)
+# + 0.1 porque wilcox R falla para valores == 0 en la tabla
+difs <- (tablatst[,1] - tablatst[,2]) / tablatst[,1]
+wilc_1_2 <- cbind(ifelse (difs<0, abs(difs)+0.1, 0+0.1), ifelse (difs>0, abs(difs)+0.1, 0+0.1))
+colnames(wilc_1_2) <- c(colnames(tablatst)[1], colnames(tablatst)[2])
+```
+
+
+**Datos de train**
+```{r comparacion_w_R_norm}
+##lm (other) vs knn (ref)
+difs_train <- (tablatra[,1] - tablatra[,2]) / tablatra[,1]
+wilc_1_2_train <- cbind(ifelse (difs_train<0, abs(difs_train)+0.1, 0+0.1),
+                        ifelse (difs_train>0, abs(difs_train)+0.1, 0+0.1))
+colnames(wilc_1_2_train) <- c(colnames(tablatra)[1], colnames(tablatra)[2])
+```
+
+Aplico el test de Wilcoxon
+
+**Datos de test**
+```{r comparacion_w_R_wil_tst}
+# LM(R+) vs KNN(R-)
+LMvsKNNtst <- wilcox.test(wilc_1_2[,1], wilc_1_2[,2], alternative = "two.sided", paired=TRUE)
+Rmas <- LMvsKNNtst$statistic
+pvalue <- LMvsKNNtst$p.value
+LMvsKNNtst <- wilcox.test(wilc_1_2[,2], wilc_1_2[,1], alternative = "two.sided", paired=TRUE)
+Rmenos <- LMvsKNNtst$statistic
+Rmas
+Rmenos
+pvalue
+```
+
+- El p-valor no es significativo. No existen diferencias significativas entre ambos algoritmos.
+- Sólo hay un (1-0.7660) *100 = 23.4% de confianza en que sean distintos.
+
+**Datos de train**
+```{r comparacion_w_R_wil}
+# LM(R+) vs KNN(R-)
+LMvsKNNtra <- wilcox.test(wilc_1_2_train[,1], wilc_1_2_train[,2], 
+                          alternative = "two.sided", paired=TRUE)
+Rmastra <- LMvsKNNtra$statistic
+pvaluetra <- LMvsKNNtra$p.value
+LMvsKNNtra <- wilcox.test(wilc_1_2_train[,2], wilc_1_2_train[,1],
+                          alternative = "two.sided", paired=TRUE)
+Rmenostra <- LMvsKNNtra$statistic
+Rmastra
+Rmenostra
+pvaluetra
+```
+
+- El p-valor es significativo. Existen diferencias significativas entre ambos algoritmos.
+- Hay un (1-0.00032)*100 = 99.96% de confianza en que sean distintos.
+
+**Conclusiones**
+
+- Sobre datos de testing no hay diferencias entre LM y k-NN. Si se observan diferencias significativas en favor de k-NN sobre datos de train. En el dataset ANACALT en particular no parece existir un problema de sobreajuste de k-NN, ya que pudimos observar que el algoritmo generaliza bien sobre test. Pero los resultados de este test, pueden ser indicativos que k-NN esta sobreajustando sobre otros datasets que formaron parte de la comparativa.
+
+
+### Comparativas múltiples
+Usaremos el test Friedman que es la extensión para mas de dos variables del test de Wilcoxon. El test de Friedman trabaja asignando rankings a los resultados obtenidos por cada algoritmo en cada problema. La hipótesis nula indica que todos los algoritmos se comportan similarmente, por lo que sus rankings deben ser similares.
+
+Aplicamos el test de Friedman
+
+**Datos de test**
+```{r comp_mul_tst}
+test_friedman <- friedman.test(as.matrix(tablatst))
+test_friedman
+```
+
+- El p-valor de 0.01 indica que debemos rechazar la hipótesis nula, y que existen diferencias significativas al menos entre un par de algoritmos.
+
+**Datos de train**
+```{r comp_mul}
+test_friedman_train <- friedman.test(as.matrix(tablatra))
+test_friedman_train
+```
+
+- El p-valor de 3.84e-05 indica que debemos rechazar la hipótesis nula, y que existen diferencias significativas al menos entre un par de algoritmos.
+
+
+Como el test de Friedman fue significativo tanto para train como para test, tenemos que realizar un post-hoc que nos diga qué algoritmos pueden considerarse similares entre sí. En este caso utilizaré el test de Holm.
+
+Procederemos a aplicar el test de Holm
+
+**Datos de test**
+```{r comp_mul_h_tst}
+tam <- dim(tablatst)
+groups <- rep(1:tam[2], each=tam[1])
+pairwise.wilcox.test(as.matrix(tablatst), groups, p.adjust = "holm", paired = TRUE)
+```
+
+- Existen diferencias significativas a favor de M5’ (3vs1 0.081 y 3vs2 0.108, con aproximasdamente 90% de confianza) mientras que los otros dos pueden ser considerados equivalentes.
+
+**Datos de train**
+```{r comp_mul_h}
+tam <- dim(tablatra)
+groups <- rep(1:tam[2], each=tam[1])
+pairwise.wilcox.test(as.matrix(tablatra), groups, p.adjust = "holm", paired = TRUE)
+```
+
+
+- Existen diferencias significativas a favor de k-NN vs LM y M5', y de M5' vs LM.
+
+
+
+\newpage
+# Apartado Clasificación
+
+## k-NN
+
+### Uso del paquete class
+
+Se utilizara el algoritmo k-NN, testeando diferentes valores de K, para seleccionar el modelo con el valor de K más adecuado para el dataset.
+
+Para comparar los diferentes valores de K, realizare 10-Fold Cross Validation, utilizando la métrica F1 para seleccionar el valor de K más adecuado. Generaré graficos de varias métricas, calculadas tanto en training como testing, a fines observacionales.
+
+```{r knn_model, fig.width = 10, fig.heigth = 8, fig.cap="\\label{fig:figsCORC}Diferentes métricas calculadas para diferentes valores de K para el algoritmo KNN, tanto en training como testing utilizando 10-Fold Cross Validation"}
+set.seed(11) # Semilla para reproducibilidad de resultados
+
+K <- 10 # Valor de K para cross validation
+
+data_use <- datasetC
+
+# Creo los folds para cross validation
+data_folds_C <- createFolds(data_use[, "Y"], k = K, 
+                              list = TRUE, returnTrain = FALSE)
+
+# createFolds, crea folds balanceados, aca se puede comprobar
+sapply(data_folds_C, function(i) table(data_use$Y[i]))
+
+# Creo una funcion que toma como parámetros:
+# Kval: Valor de K
+# data: dataset
+# data_folds: data_folds creados con la funcion createFolds
+# response_name: Nombre de la columna con la variable dependiente
+# predict_on: pasar train como parametro si queremos calcular el training error.
+FitPredictCVKNN <- function(Kval, data, data_folds, response_name, predict_on = "test") {
+  
+  folds <- length(data_folds)
+  
+  # Variables para almacenar los resultados
+  accuracy_list <- list() # Accuracy: = Number of correct predictions / Total number of predictions
+  error_list <- list()    # Error rate: 1 - Accuracy
+  recall_list <- list()   # Recall= TP / (TP + FN)
+  precision_list <- list()# Precision= TP / (TP + FP)
+  f1_list <- list()       # 2*( (precision*recall) / (precision + recall))
+  
+    # Itero por la cantidad de folds
+    for(i in 1:folds){
+      
+      # Obtengo los indices y 
+      fold_index <- data_folds[[i]]
+      
+      # Separo el dataset en train y test
+      X_train <- data[-fold_index, !(colnames(data) %in% response_name)]
+      X_test <- data[fold_index, !(colnames(data) %in% response_name)]
+      y_train <- data[-fold_index, response_name]
+      y_test <- data[fold_index, response_name]
+      
+      # Para ver si calculo el error de train o test
+      if(predict_on == "test") {
+        pred <- knn(k = Kval, train = X_train, test = X_test, cl = y_train)
+        cm <- as.matrix(table(Predicted = pred, Actual = y_test))
+      } else { # predict on train
+        pred <- knn(k = Kval, train = X_train, test = X_train, cl = y_train)
+        cm <- as.matrix(table(Predicted = pred, Actual = y_train))
+      }
+      
+      # Calculo estadísticas del fold
+      accuracy <- sum(diag(cm))/sum(cm)
+      TP <- cm[1, 1]
+      FN <- cm[2, 1]
+      FP <- cm[1, 2]
+      TN <- cm[2, 2]
+      recall <- TP / (TP + FN)
+      precision <- TP / (TP + FP)
+      f1 <- 2*( (precision*recall) / (precision + recall))
+      error_list[[i]] <- 1 - accuracy
+      accuracy_list[[i]] <- accuracy
+      recall_list[[i]] <- recall
+      precision_list[[i]] <- precision
+      f1_list[[i]] <- f1
+      
+    }
+
+  # Obtengo la media de las métricas de Cross Validation
+  accuracy <- mean(unlist(accuracy_list))
+  recall <- mean(unlist(recall_list))
+  precision <- mean(unlist(precision_list))
+  f1 <- mean(unlist(f1_list))
+  error_rate <- mean(unlist(error_list))
+  
+  # Genero un vector de resultados y lo devuelvo
+  vec <- list(Accuracy = accuracy, 
+              Recall = recall, 
+              Precision = precision, 
+              F1 = f1,
+              ErrorRate = error_rate)
+  vec
+}
+
+# Defino los valores de K a probar, desde 1 hasta la raiz cuadrada de la cantidad de muestras
+# en pasos de 2, para que sean valores impares de K
+k_values <- seq(1, sqrt(nrow(datasetC)), 2)
+
+# Obtengo métricas de cross validation para train y test
+train_metrics <- lapply(k_values, FitPredictCVKNN, data_use, data_folds_C, "Y", predict_on = "train")
+test_metrics <- lapply(k_values, FitPredictCVKNN, data_use, data_folds_C, "Y", predict_on = "test")
+
+# Creo un dataframe con los resultados de train
+train_df <- as.data.frame(do.call(rbind, train_metrics))
+colnames(train_df) <- c("Accuracy", "Recall", "Precision", "F1", "ErrorRate")
+train_df$K <- as.factor(k_values)
+train_df$Data <- "Train"
+
+# Creo un dataframe con los resultados de test
+test_df <- as.data.frame(do.call(rbind, test_metrics))
+colnames(test_df) <- c("Accuracy", "Recall", "Precision", "F1", "ErrorRate")
+test_df$K <- as.factor(k_values)
+test_df$Data <- "Test"
+
+# Mergeo el dataframe
+df <- rbind(train_df, test_df)
+df$Accuracy <- as.numeric(df$Accuracy)
+df$Recall <- as.numeric(df$Recall)
+df$Precision <- as.numeric(df$Precision)
+df$F1 <- as.numeric(df$F1)
+df$ErrorRate <- as.numeric(df$ErrorRate)
+df_long <- melt(df)
+
+kable(df, format = "latex", booktabs = TRUE, caption = 
+        "\\label{tab:tabKNNC}Estadísticas para diferentes valores de K del algoritmo k-NN, cálculadas utilizando 10-Fold Cross Validation")
+
+
+# Grafico los resultados de diferentes métricas, para diferentes valores de K,
+# tanto en train como test durante el proceso de cross validation
+ggplot(data = df_long, aes(x = K, y = value, group = Data, color = Data)) +
+  ylab("Valor") + geom_line() + theme_light() +
+  facet_wrap(~variable, scales = "free")
+
+```
+
+**Conclusión**
+
+- A partir de la inspeccion de los resultados (Figura \ref{fig:figsCORC}, Tabla \ref{tab:tabKNNC}), decido que el valor de K = 1 es el más apropiado para este dataset. Presenta el F1 mas alto calculado sobre testing para 10-Fold CV. Además posee el menor error rate en testing.
+
+Habiendo definido el valor de K = 1, voy a repetir el calculo solo para este K, para obtener el accuracy de cada fold de cross validation, luego compararé estos resultados con los algoritmos de LDA y QDA para ver cual funciona mejor sobre el dataset.
+
+Además ejecutare la cross validation sobre los mismos folds, pero con el dataset sin preprocesar, solo normalizado, para chequear si el preprocesamiento de datos mejora el modelo.
+
+```{r knn_model2}
+getKNNaccuracy <- function(folds, data, data_folds, Kval, response_name = "Y") {
+  
+      # Obtengo los indices y 
+      fold_index <- data_folds[[folds]]
+      
+      # Separo el dataset en train y test
+      X_train <- data[-fold_index, !(colnames(data) %in% response_name)]
+      X_test <- data[fold_index, !(colnames(data) %in% response_name)]
+      y_train <- data[-fold_index, response_name]
+      y_test <- data[fold_index, response_name]
+      
+      # Para ver si calculo el error de train o test
+      pred <- knn(k = Kval, train = X_train, test = X_test, cl = y_train)
+      cm <- as.matrix(table(Predicted = pred, Actual = y_test))
+
+      # Calculo estadísticas del fold
+      accuracy <- sum(diag(cm))/sum(cm)
+      accuracy
+}
+
+knn_accuracy_comparar <- unlist(lapply(seq(1:K), getKNNaccuracy, data_use, data_folds_C, 1))
+knn_accuracy_comparar
+```
+
+Repito para el dataset que solo fue normalizado como preprocesamiento.
+
+```{r knn_model2_sin_preproc}
+knn_accuracy_comparar_no_procesado <- unlist(lapply(seq(1:K), 
+                                                    getKNNaccuracy,
+                                                    datasetC_sin_procesar, 
+                                                    data_folds_C, 
+                                                    1))
+knn_accuracy_comparar_no_procesado
+```
+
+### Uso del paquete caret
+
+A modo comparativo con el proceso manual anterior, donde utilize la funcion knn del paquete class, ahora realizare 10-Fold Cross Validation con diferentes valores de K, pero utilizando el paquete _caret_. Puedo utilizar las mismas particiones para el 10-Fold crss validation.
+
+El paquete caret me permite realizar las tareas que realize manualmente de una forma más automatizada.
+
+
+```{r knn_model_caret, fig.width = 10, fig.heigth = 8, fig.cap="\\label{fig:figsKNNcaret}Comparación de diferentes valores de K para kNN en caret"}
+# 10-Fold cross validation
+
+# Uso las mismas particiones que en el modelo anterior (data_folds_C)
+trControl <- trainControl(method  = "cv",
+                          index = data_folds_C)
+
+# Entreno el modelo
+model_knn_caret <- train(Y ~ .,
+             method     = "knn",
+             # Utilizo los mismos valores de K
+             tuneGrid   = expand.grid(k = k_values),
+             trControl  = trControl,
+             metric     = "Accuracy",
+             data       = data_use
+             )
+model_knn_caret
+summary(model_knn_caret)
+
+
+print(paste0("El mejor modelo es el que posee un K de : ",
+             model_knn_caret$bestTune))
+
+# Graficos las estadísticas
+ggplot(data = model_knn_caret$results, aes(x = k, y = Accuracy)) + 
+  geom_bar(stat = "identity") + 
+  coord_cartesian(ylim=c(0.9, 1)) +
+  theme_bw()
+```
+
+**Conclusión**
+
+- Utilizando la implementación del paquete caret, el mejor valor de K segun la accuracy calculada luego de 10-Fold CV es K = 11.
+
+
+## LDA
+
+### Chequeo asumpciones LDA y QDA
+
+**Análisis de normalidad univariante, normalidad multivariante y homogeneidad de varianza**
+
+Las condiciones que se deben cumplir para que un Análisis Discriminante Lineal sea válido son:
+
+- Cada predictor que forma parte del modelo se distribuye de forma normal en cada una de las clases de la variable respuesta. En el caso de múltiples predictores, las observaciones siguen una distribución normal multivariante en todas las clases. Para chequear la normalidad univariante de los predictores se puede utilizar el test de normalidad Shapiro-Wilk para cada variable predictora en cada clase de la variable dependiente. Para testear la normalidad multivariante se pueden emplear los test de Royston y Henze-Zirkler
+- La varianza del predictor es igual en todas las clases de la variable respuesta. En el caso de múltiples predictores, la matriz de covarianza es igual en todas las clases. Si esto no se cumple se recurre a Análisis Discriminante Cuadrático (QDA).
+
+```{r check_LDA_mostrado, fig.cap="\\label{fig:figroy}Imagen generada por la función que realiza el Test de normalidad multivariante Royston"}
+# Test de normalidad Shapiro-Wilk para cada variable predictora
+# en cada clase de la variable dependiente
+data_tidy <- melt(data_use, value.name = "valor")
+kable(data_tidy %>% group_by(Y, variable) %>% 
+        summarise(p_value_Shapiro.test = shapiro.test(valor)$p.value),
+      format = "latex", booktabs = TRUE, caption = 
+        "\\label{tab:tab3}Test de normalidad de Shapiro-Wilk")
+
+# Test de normalidad multivariante Royston
+royston_test <- mvn(data = data_use[,-9], mvnTest = "royston", multivariatePlot = "qq")
+royston_test$multivariateNormality
+
+royston_test$univariateNormality
+
+# Test de normalidad multivariante de Henze-Zirkler
+hz_test <- mvn(data = data_use[,-9], mvnTest = "hz")
+hz_test$multivariateNormality
+```
+
+
+**Conclusión**:
+
+- Todas las variables predictoras fueron significativas en el test Shapiro Wilk (tabla \ref{tab:tab3}). Se puede concluir que no hay normalidad univariante en todas las variables empleadas como predictores. 
+- Los test de normalidad multivariante tambien fueron significativos, indicando que no hay normalidad multivariante.
+
+
+Se puede utilizar el test M de Box (1949) para determinar la homogeneidad de las matrices de covarianza obtenidas a partir de datos normales multivariados según uno o más factores de clasificación.
+
+- H_o = Matriz de covarianza de la variable dependiente es igual en todos los grupos
+- H_a = Matriz de covarianza de la variable dependiente es diferente en al menos uno de los grupos
+
+```{r check2_LDA, fig.cap="\\label{fig:figboxm}Imagen generada por la función que realiza el Test M de Box"}
+# Chequeo homogeneidad varianza
+unlist(lapply(X = data_use[, -9], FUN = var))
+
+# Test de homogeneidad matriz covarianza
+# Utilizo el test M de Box (1949). Tiene como hipótesis nula que las matrices de covarianza son iguales. 
+# Importante: sensible a la falta de normalidad multivariante
+boxm <- heplots::boxM(data_use[, -9], data_use[, 9])
+boxm
+plot(boxm)
+```
+
+**Conclusiones**:
+
+- El p-valor significativo, indica que debemos rechazar la hipótesis nula, y aceptar la hipótesis alternativa.
+- Los datos indican que la matriz de covarianza no es estable para los dos grupos.
+
+**Los resultados obtenidos indican que sería apropiado aplicar QDA en lugar de LDA, pero en este caso ante la falta de normalidad multivariante en los datos, el test podría verse visto afectado por ello.**
+
+### Uso del paquete MASS
+
+Ejecutare la función lda del paquete MASS, obtendre los valores de accuracy de cada fold para 10-Fold CV, y luego los compararé con los resultados de KNN y QDA.
+
+```{r lda_model_hand}
+
+runLDA <- function(data, data_folds, response_name, predict_on = "test") {
+  
+  folds <- length(data_folds)
+  
+    # Variables para almacenar los resultados
+    accuracy_list <- list()
+
+    # Itero por la cantidad de folds
+    for(i in 1:folds){
+      
+      # Obtengo los indices y 
+      fold_index <- data_folds[[i]]
+      
+      # Separo el dataset en train y test
+      X_train <- data[-fold_index, ]
+      X_test <- data[fold_index, ]
+      y_train <- data[-fold_index, response_name]
+      y_test <- data[fold_index, response_name]
+      
+      # Para ver si calculo el error de train o test
+      if(predict_on == "test") {
+        lda.fit <- lda(Y~., data=X_train)
+        lda.pred <- predict(lda.fit, X_test)
+        cm <- as.matrix(table(Predicted = lda.pred$class, Actual = y_test))
+      } else { # predict on train
+        lda.fit <- lda(Y~., data=X_train)
+        lda.pred <- predict(lda.fit, X_train)
+        cm <- as.matrix(table(Predicted = lda.pred$class, Actual = y_train))
+      }
+      
+      # Calculo estadísticas del fold
+      accuracy <- sum(diag(cm))/sum(cm)
+      accuracy_list[[i]] <- accuracy
+    }
+  accuracy_list
+}
+
+# Obtengo métricas de cross validation para test
+lda_accuracy_comparar <- unlist(runLDA(data_use, data_folds_C, "Y", predict_on = "test"))
+lda_accuracy_comparar
+```
+
+Repito para el dataset que solo fue normalizado como preprocesamiento
+```{r lda_model_hand_no_prepro}
+# Obtengo métricas de cross validation para test
+lda_accuracy_comparar_no_preprocesado <- unlist(runLDA(datasetC_sin_procesar, 
+                                                       data_folds_C, 
+                                                       "Y",
+                                                       predict_on = "test"))
+lda_accuracy_comparar_no_preprocesado
+```
+
+### Uso del paquete caret
+
+Utilizo la implementación de LDA en el paquete caret.
+
+```{r lda_model_caret}
+# 10-Fold cross validation
+# Uso las mismas particiones que en los casos anteriores
+# Entreno el modelo
+model_lda_caret <- train(Y ~ .,
+             method     = "lda",
+             trControl  = trControl,
+             metric     = "Accuracy",
+             data       = data_use
+             )
+model_lda_caret
+summary(model_lda_caret)
+
+print(paste0("Method: ", model_lda_caret$method, " -- 10-fold CV Mean Accuracy = ",
+             round(100*model_lda_caret$results$Accuracy, 3), "%"))
+```
+
+## QDA
+
+### Uso del paquete MASS
+
+Ejecutare la función qda del paquete MASS, obtendre los valores de accuracy de cada fold para 10-Fold CV, y luego los compararé con los resultados de k-NN y LDA.
+
+```{r qda_model_hand}
+
+runQDA <- function(data, data_folds, response_name, predict_on = "test") {
+  
+  folds <- length(data_folds)
+  
+    # Variables para almacenar los resultados
+    accuracy_list <- list()
+
+    # Itero por la cantidad de folds
+    for(i in 1:folds){
+      
+      # Obtengo los indices y 
+      fold_index <- data_folds[[i]]
+      
+      # Separo el dataset en train y test
+      X_train <- data[-fold_index, ]
+      X_test <- data[fold_index, ]
+      y_train <- data[-fold_index, response_name]
+      y_test <- data[fold_index, response_name]
+      
+      # Para ver si calculo el error de train o test
+      if(predict_on == "test") {
+        qda.fit <- qda(Y~., data=X_train)
+        qda.pred <- predict(qda.fit, X_test)
+        cm <- as.matrix(table(Predicted = qda.pred$class, Actual = y_test))
+      } else { # predict on train
+        qda.fit <- qda(Y~., data=X_train)
+        qda.pred <- predict(qda.fit, X_train)
+        cm <- as.matrix(table(Predicted = qda.pred$class, Actual = y_train))
+      }
+      
+      # Calculo estadísticas del fold
+      accuracy <- sum(diag(cm))/sum(cm)
+      accuracy_list[[i]] <- accuracy
+    }
+  accuracy_list
+}
+
+# Obtengo métricas de cross validation para test
+qda_accuracy_comparar <- unlist(runQDA(data_use, data_folds_C, "Y", predict_on = "test"))
+qda_accuracy_comparar
+```
+
+Repito para el dataset que solo fue normalizado como preprocesamiento
+```{r qda_model_hand_no_prepro}
+# Obtengo métricas de cross validation para test
+qda_accuracy_comparar_no_preprocesado <- unlist(runQDA(datasetC_sin_procesar, 
+                                                       data_folds_C, 
+                                                       "Y",
+                                                       predict_on = "test"))
+qda_accuracy_comparar_no_preprocesado
+```
+
+### Uso del paquete caret
+
+```{r qda_model_caret, warning=FALSE}
+# 10-Fold cross validation
+# Uso las mismas particiones que en los modelos anteriores
+# Entreno el modelo
+model_qda_caret <- train(Y ~ .,
+             method     = "qda",
+             trControl  = trControl,
+             metric     = "Accuracy",
+             data       = data_use)
+model_qda_caret
+summary(model_qda_caret)
+
+print(paste0("Method: ", model_qda_caret$method, " -- 10-fold CV Mean Accuracy = ",
+             round(100*model_qda_caret$results$Accuracy, 3), "%"))
+```
+
+## Comparación de modelos
+
+### Comparación de modelos obtenidos a mano
+A continuación realizare una comparación de los modelos de k-NN, LDA y QDA obtenidos de forma manual, es decir sin utilizar caret. Compararé los resultados de 10-Fold Cross Validation de cada algoritmo sobre el dataset preprocesado, y el que como preprocesamiento solo recibio normalización.
+
+```{R compare_models_mano}
+# Genero vectores de resultados para el dataframe
+algoritmo <- c(rep("k-NN", 20), 
+               rep("LDA", 20),
+               rep("QDA", 20))
+
+preproc <- c(rep("Si", 10),
+             rep("No", 10),
+             rep("Si", 10),
+             rep("No", 10),
+             rep("Si", 10),
+             rep("No", 10))
+
+acc <- c(knn_accuracy_comparar, 
+         knn_accuracy_comparar_no_procesado,
+         lda_accuracy_comparar,
+         lda_accuracy_comparar_no_preprocesado,
+         qda_accuracy_comparar,
+         qda_accuracy_comparar_no_preprocesado)
+
+# Dataframe de resultados para graficar
+df <- data.frame(Algoritmo = algoritmo,
+                 Preprocesado = preproc,
+                 Accuracy = acc)
+
+# Grafico
+ggplot(data = df, aes(x = Algoritmo, y = Accuracy, fill = Preprocesado)) + geom_boxplot()
+
+# Obtengo la exactitud promedio
+mean.acc <- c(mean(unlist(knn_accuracy_comparar)), 
+         mean(unlist(knn_accuracy_comparar_no_procesado)),
+         mean(unlist(lda_accuracy_comparar)),
+         mean(unlist(lda_accuracy_comparar_no_preprocesado)),
+         mean(unlist(qda_accuracy_comparar)),
+         mean(unlist(qda_accuracy_comparar_no_preprocesado)))
+
+# Genero un dataframe para mostrar como tabla
+df <- data.frame(Algoritmo = c("kNN", "kNN", "LDA", "LDA", "QDA", "QDA"),
+                 Preprocesado = c("Yes", "No", "Yes", "No", "Yes", "No"),
+                 AccuracyPromedio = mean.acc)
+
+kable(df, format = "latex", booktabs = TRUE, 
+      caption = "\\label{tab:tab4}Comparación exactitud (accuracy) promedio 10-Fold CV")
+
+```
+
+\vskip 0.2in
+**Conclusiones**
+
+- El preprocesamiento de los datos produjos mejores resultados, teniendo en cuenta la exactitud (accuracy) realizando 10-fold cross validation, para los 3 algoritmos probados (tabla \ref{tab:tab4}).
+- k-NN obtuvo la mayor exactitud (accuracy) media en 10-Fold cross validation, seguido de LDA y por último QDA. 
+
+### Comparación de modelos obtenidos con caret
+
+```{R compare_models}
+# Modelos generados con caret
+model_list <- list(KNN = model_knn_caret,
+                   LDA= model_lda_caret,
+                   QDA= model_qda_caret)
+
+# Obtengo estadísticas del 10-Fold CV
+resamples <- resamples(model_list)
+
+# Printeo la media de Accuracy obtenida en 10-Fold CV
+summary(resamples)$statistics$Accuracy[,4]
+
+# Boxplot de resultados
+bwplot(resamples, metric = "Accuracy")
+```
+
+\vskip 0.2in
+**Conclusiones**
+
+Al igual que con los modelos manuales, k-NN obtuvo la mayor exactitud (accuracy) media en 10-Fold cross validation, seguido de LDA y por último QDA. Además los resultados obtenidos con k-NN fueron más estables en los distintos folds de cross validation.
+QDA mostro la mayor varianza en los resultados de cada fold de cross validation.
+
+
+## Comparación estadística de algoritmos clasficación
+
+Procedere a comparar los 3 diferentes algoritmos empleados en el trabajo.
+
+```{r comparacion_load_clasi}
+# Lectura de los datos
+
+#leemos la tabla con los errores medios de test
+resultados <- read.csv("clasif_test_alumos.csv")
+tablatst <- cbind(resultados[,2:dim(resultados)[2]])
+colnames(tablatst) <- names(resultados)[2:dim(resultados)[2]]
+rownames(tablatst) <- resultados[,1]
+
+kable(tablatra, format = "latex", booktabs = TRUE, caption = 
+        "\\label{tab:tabCACTST}Errores medios de test para los algoritmos k-NN, LDA y QDA")
+
+#leemos la tabla con los errores medios de entrenamiento
+resultados <- read.csv("clasif_train_alumnos.csv")
+tablatra <- cbind(resultados[,2:dim(resultados)[2]])
+colnames(tablatra) <- names(resultados)[2:dim(resultados)[2]]
+rownames(tablatra) <- resultados[,1]
+
+kable(tablatra, format = "latex", booktabs = TRUE, caption = 
+        "\\label{tab:tabCACTRA}Errores medios de train para los algoritmos k-NN, LDA y QDA")
+
+```
+
+### Wilcoxon
+Primero realizare una comparativa de a pares entre los diferentes algoritmos utilizando el test de Wilcoxon. 
+
+#### k-NN vs LDA
+
+**Datos de test**
+```{r comparacion_test_knnLDA}
+KNNvsLDAtst <- wilcox.test(tablatst[,1], tablatst[,2], alternative = "two.sided", paired=TRUE)
+Rmas <- KNNvsLDAtst$statistic
+pvalue <- KNNvsLDAtst$p.value
+LDAvsKNNtst <- wilcox.test(tablatst[,2], tablatst[,1], alternative = "two.sided", paired=TRUE)
+Rmenos <- LDAvsKNNtst$statistic
+Rmas
+Rmenos
+pvalue
+
+```
+
+- No existen diferencias significativas entre ambos algoritmos.
+- Sólo hay un (1-0.5958) *100 = 40.4% de confianza en que sean distintos
+
+**Datos de train**
+```{r comparacion_test_knnLDA_train}
+KNNvsLDAtra <- wilcox.test(tablatra[,1], tablatra[,2], alternative = "two.sided", paired=TRUE)
+Rmas <- KNNvsLDAtra$statistic
+pvalue <- KNNvsLDAtra$p.value
+LDAvsKNNtra <- wilcox.test(tablatra[,2], tablatra[,1], alternative = "two.sided", paired=TRUE)
+Rmenos <- LDAvsKNNtra$statistic
+Rmas
+Rmenos
+pvalue
+
+```
+
+- No existen diferencias significativas entre ambos algoritmos.
+- Sólo hay un (1-0.6476) *100 = 35.2% de confianza en que sean distintos
+
+
+#### k-NN vs QDA
+
+**Datos de test**
+```{r comparacion_test_LDAQDA}
+KNNvsQDAtst <- wilcox.test(tablatst[,1], tablatst[,3], alternative = "two.sided", paired=TRUE)
+Rmas <- KNNvsQDAtst$statistic
+pvalue <- KNNvsQDAtst$p.value
+QDAvsKNNtst <- wilcox.test(tablatst[,3], tablatst[,1], alternative = "two.sided", paired=TRUE)
+Rmenos <- QDAvsKNNtst$statistic
+Rmas
+Rmenos
+pvalue
+
+```
+
+- No existen diferencias significativas entre ambos algoritmos.
+- hay un (1-0.1769) *100 = 82.3% de confianza en que sean distintos
+
+**Datos de train**
+```{r comparacion_test_LDAQDA_train}
+KNNvsQDAtra <- wilcox.test(tablatra[,1], tablatra[,3], alternative = "two.sided", paired=TRUE)
+Rmas <- KNNvsQDAtra$statistic
+pvalue <- KNNvsQDAtra$p.value
+QDAvsKNNtra <- wilcox.test(tablatra[,3], tablatra[,1], alternative = "two.sided", paired=TRUE)
+Rmenos <- QDAvsKNNtra$statistic
+Rmas
+Rmenos
+pvalue
+
+```
+
+- No existen diferencias significativas entre ambos algoritmos.
+- hay un (1-0.2942) *100 = 70.6% de confianza en que sean distintos
+
+
+#### LDA vs QDA
+
+**Datos de test**
+```{r comparacion_test_knnQDA}
+LDAvsQDAtst <- wilcox.test(tablatst[,2], tablatst[,3], alternative = "two.sided", paired=TRUE)
+Rmas <- LDAvsQDAtst$statistic
+pvalue <- LDAvsQDAtst$p.value
+QDAvsLDAtst <- wilcox.test(tablatst[,3], tablatst[,2], alternative = "two.sided", paired=TRUE)
+Rmenos <- QDAvsLDAtst$statistic
+Rmas
+Rmenos
+pvalue
+
+```
+
+- No existen diferencias significativas entre ambos algoritmos.
+- hay un (1-0.8408) *100 = 15.9% de confianza en que sean distintos
+
+
+**Datos de train**
+```{r comparacion_test_knnQDA_train}
+LDAvsQDAtra <- wilcox.test(tablatra[,2], tablatra[,3], alternative = "two.sided", paired=TRUE)
+Rmas <- LDAvsQDAtra$statistic
+pvalue <- LDAvsQDAtra$p.value
+QDAvsLDAtra <- wilcox.test(tablatra[,3], tablatra[,2], alternative = "two.sided", paired=TRUE)
+Rmenos <- QDAvsLDAtra$statistic
+Rmas
+Rmenos
+pvalue
+
+```
+
+- No existen diferencias significativas entre ambos algoritmos.
+- Hay un (1-0.1768) *100 = 82.3% de confianza en que sean distintos
+
+
+### Comparativas múltiples
+Usaremos Friedman y como post-hoc Holm (los rankings se calculan por posiciones de los algoritmos para cada problema y no hace falta normalización)
+
+Test de Friedman
+**Datos de test**
+```{r comp_mul_clas1}
+test_friedman <- friedman.test(as.matrix(tablatst))
+test_friedman
+```
+
+- El p-valor de 0.7 indica que debemos aceptar la hipótesis nula, no existen diferencias significativas entre los 3 algoritmos.
+
+**Datos de train**
+```{r comp_mul_clas1_train}
+test_friedman_tra <- friedman.test(as.matrix(tablatra))
+test_friedman_tra
+```
+
+- El p-valor de 0.5 indica que debemos aceptar la hipótesis nula, no existen diferencias significativas entre los 3 algoritmos.
+
+Procederemos a aplicar el test de Holm, para corroborar lo que indica el test de Friedman, aunque no es necesario en este caso.
+
+**Datos de test**
+```{r comp_mul_clas_holm}
+tam <- dim(tablatst)
+groups <- rep(1:tam[2], each=tam[1])
+pairwise.wilcox.test(as.matrix(tablatst), groups, p.adjust = "holm", paired = TRUE)
+```
+
+- No existen diferencias significativas en favor de ninguno de los 3 algoritmos.
+
+**Datos de train**
+```{r comp_mul_clas_holm_tra}
+tam <- dim(tablatra)
+groups <- rep(1:tam[2], each=tam[1])
+pairwise.wilcox.test(as.matrix(tablatra), groups, p.adjust = "holm", paired = TRUE)
+```
+
+- No existen diferencias significativas en favor de ninguno de los 3 algoritmos.
+
+\newpage
+# Apéndice 1
+
+Librerías necesarias para el análisis
+```{r lib_apen, warning = FALSE}
+library(ggplot2)
+library(reshape2)
+library(ISLR)
+library(caret)
+library(reshape2)
+library(corrplot)
+library(Hmisc)
+library(car)
+library(MVN)
+library(dplyr)
+library(class)
+library(kknn)
+library(VIM)
+library(heplots)
+library(MASS)
+library(GGally)
+library(kableExtra)
+library(ggthemr)
+library(knitr)
+
+# Tema para gráficos con ggplot2
+ggthemr('flat')
+```
